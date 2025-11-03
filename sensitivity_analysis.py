@@ -2,6 +2,7 @@
 SOBOL SENSITIVITY ANALYSIS WITH MLFLOW
 ======================================
 Analyzes how model parameters affect adoption outcomes
+Features checkpointing for resuming after interruptions
 """
 
 import numpy as np
@@ -11,6 +12,12 @@ from SALib.sample import saltelli
 from SALib.analyze import sobol
 import matplotlib.pyplot as plt
 from simple_contagion_model import SimpleContagion
+import pickle
+import os
+from pathlib import Path
+
+
+CHECKPOINT_FILE = '/mnt/user-data/outputs/sensitivity_checkpoint.pkl'
 
 
 def run_model_sample(params):
@@ -25,8 +32,27 @@ def run_model_sample(params):
     return results['final_adoption_rate']
 
 
-def sobol_analysis():
-    """Perform Sobol sensitivity analysis with MLFlow tracking."""
+def save_checkpoint(param_values, outputs, completed_idx):
+    """Save progress to disk."""
+    checkpoint = {
+        'param_values': param_values,
+        'outputs': outputs,
+        'completed_idx': completed_idx
+    }
+    with open(CHECKPOINT_FILE, 'wb') as f:
+        pickle.dump(checkpoint, f)
+
+
+def load_checkpoint():
+    """Load previous progress if exists."""
+    if os.path.exists(CHECKPOINT_FILE):
+        with open(CHECKPOINT_FILE, 'rb') as f:
+            return pickle.load(f)
+    return None
+
+
+def sobol_analysis(save_interval=50):
+    """Perform Sobol sensitivity analysis with MLFlow tracking and checkpointing."""
     
     # Define parameter space
     problem = {
@@ -40,14 +66,44 @@ def sobol_analysis():
     # Generate samples (Sobol sequence)
     param_values = saltelli.sample(problem, 512)
     
-    print(f"Running {len(param_values)} simulations...")
+    # Try to load checkpoint
+    checkpoint = load_checkpoint()
+    if checkpoint is not None:
+        print(f"Found checkpoint! Resuming from sample {checkpoint['completed_idx']}/{len(param_values)}")
+        outputs = checkpoint['outputs']
+        start_idx = checkpoint['completed_idx']
+    else:
+        print(f"Starting fresh: {len(param_values)} simulations...")
+        outputs = np.zeros(len(param_values))
+        start_idx = 0
     
-    # Run model for each sample
+    # Run model for remaining samples
     with mlflow.start_run(run_name="sobol_sensitivity"):
         mlflow.log_param("analysis_type", "sobol")
         mlflow.log_param("n_samples", len(param_values))
+        mlflow.log_param("checkpoint_interval", save_interval)
         
-        outputs = np.array([run_model_sample(params) for params in param_values])
+        try:
+            for i in range(start_idx, len(param_values)):
+                outputs[i] = run_model_sample(param_values[i])
+                
+                # Save checkpoint periodically
+                if (i + 1) % save_interval == 0:
+                    save_checkpoint(param_values, outputs, i + 1)
+                    print(f"Progress: {i + 1}/{len(param_values)} ({100*(i+1)/len(param_values):.1f}%) - Checkpoint saved")
+            
+            # Final checkpoint
+            save_checkpoint(param_values, outputs, len(param_values))
+            print(f"Completed: {len(param_values)}/{len(param_values)} (100%)")
+            
+        except KeyboardInterrupt:
+            print(f"\nInterrupted! Progress saved at sample {i}")
+            save_checkpoint(param_values, outputs, i)
+            return
+        except Exception as e:
+            print(f"\nError at sample {i}: {e}")
+            save_checkpoint(param_values, outputs, i)
+            raise
         
         # Perform Sobol analysis
         Si = sobol.analyze(problem, outputs)
@@ -87,9 +143,14 @@ def sobol_analysis():
         
         print(f"\nResults logged to MLFlow")
         print(f"View at: mlruns/")
+        
+        # Clean up checkpoint file after successful completion
+        if os.path.exists(CHECKPOINT_FILE):
+            os.remove(CHECKPOINT_FILE)
+            print("Checkpoint file cleaned up")
 
 
 if __name__ == '__main__':
     # Set MLFlow tracking
     mlflow.set_experiment("contagion_sensitivity")
-    sobol_analysis()
+    sobol_analysis(save_interval=50)  # Save every 50 simulations
