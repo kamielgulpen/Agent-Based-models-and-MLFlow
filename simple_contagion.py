@@ -14,7 +14,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-class SimpleContagion:
+class ComplexContagion:
     """
     A simple model of complex contagion.
     
@@ -123,7 +123,7 @@ if __name__ == '__main__':
     print("Running Simple Contagion Model...\n")
     
     # Create and run the model
-    model = SimpleContagion(
+    model = ComplexContagion(
         n_people=100,
         network_type='small_world',
         threshold=0.25,
@@ -142,4 +142,5 @@ if __name__ == '__main__':
     # Save plot
     model.plot()
     plt.show()
+
     print("\nPlot saved!")
