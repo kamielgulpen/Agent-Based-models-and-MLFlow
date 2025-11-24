@@ -11,7 +11,7 @@ import mlflow.sklearn
 from SALib.sample import saltelli
 from SALib.analyze import sobol
 import matplotlib.pyplot as plt
-from simple_contagion_model import SimpleContagion
+from complex_contagion_model import ComplexContagion
 import pickle
 import os
 from pathlib import Path
@@ -22,7 +22,7 @@ CHECKPOINT_FILE = '/mnt/user-data/outputs/sensitivity_checkpoint.pkl'
 
 def run_model_sample(params):
     """Run model with given parameters and return metrics."""
-    model = SimpleContagion(
+    model = ComplexContagion(
         n_people=int(params[0]),
         threshold=params[1],
         initial_adopters=int(params[2])
